@@ -1,6 +1,7 @@
 import network
 import machine
 import time
+from log import log
 
 
 def connect_wifi():
@@ -24,10 +25,11 @@ def connect_wifi():
             for i in range(5):
                 print('.', end='')
                 if sta.isconnected():
-                    print('\nip is {}'.format(sta.ifconfig()[0]))
+                    print('\n')
+                    log.info('connected to wifi {}; ip is {}'.format(pw[0], sta.ifconfig()[0]))
                     break
                 #todo: check timeout
                 time.sleep(1)
         else: break
-    print('starting telnet...')
+    log.info('starting telnet...')
     network.telnet.start()

@@ -12,95 +12,115 @@ except ImportError:
 import time, math
 from machine import SPI, PWM, Pin
 from time import sleep
-import microgui as gui
+import uTKinter as tk
 import network
-screen = gui.MicroGUI()
-screen.add_rotary_encoder(Pin(14), Pin(12))
-screen.init(screen.ILI9488, width=240, height=320, 
-    miso=19, mosi=23, clk=18, cs=5, dc=21, tcs=0,rst_pin=4, backl_pin=22, bgr=False,
-    hastouch=screen.TOUCH_XPT,backl_on=1, speed=40000000, splash=False, rot=screen.LANDSCAPE_FLIP)
+from utils import Battery
 
-screen.root=gui.Frame(bg=screen.BLACK, fg=screen.WHITE)
-screen.root.pack(gui.Label('Starting wifi...'))
-screen.draw()
+from hid import Button ,TouchPad,RotaryEncoder, RFID
+from log import log
+
+root = tk.Tk()
+
+#touch=TouchPad(14,lambda hid:print('press'),lambda hid :print('hold'),lambda hid:print('release'),hold_repeat_time=.1)
+btn=Button(25,lambda hid:log.info('press'),lambda hid :log.info('hold'),lambda hid :root.cmd_select(),hold_repeat_time=.1)
+encoder=RotaryEncoder(26,27,lambda val: root.cmd_add(val), freq=5)
+
+root.init(root.ILI9488, width=240, height=320, 
+    miso=19, mosi=23, clk=18, cs=5, dc=21, tcs=0,rst_pin=4, backl_pin=22, bgr=False,
+    hastouch=root.TOUCH_XPT,backl_on=1, speed=40000000, splash=False, rot=root.LANDSCAPE_FLIP)
+
+#info=gui.Frame(root, bg=screen.BLACK, fg=screen.WHITE)
+tk.Label(root, 'Starting wifi...').grid()
+root.backlight(100)
+root.draw()
 connect_wifi()
 
 mqtt = network.mqtt('home_controller', 'mqtt://192.168.178.65')
 mqtt.start()
-mqtt.status()
-mqtt.subscribe('lights/#')
-mqtt.subscribe('audio/#')
-mqtt.subscribe('web/weather')
-rooms=['Wohnzi.', 'Schlafzi.', 'Bastelzi.']
 
-lights={'lights/Bastelzimmer/bulb1/brightness':gui.Var(0)}
+rooms=[('Wohnzi.',[4,7,8]), ('Schlafzi.',[2,3]), ('Bastelzi.',[1,6])]
+lights=dict()
+
 
 def datacb(msg):
-    print("[{}] Data arrived from topic: {}, Message:\n".format(msg[0], msg[1]), msg[2])
-    if msg[1] in lights:        
-        lights[msg[1]].val=int(msg[2])
+    log.debug("[{}] Data arrived from topic: {}, Message:\n".format(msg[0], msg[1]), msg[2])
+    topic=msg[1].split('/')
+    if len(topic)==3 and topic[0]=='node-red' and topic[1]=='lights' and msg[2]!='get_state':
+        log.info('update for light {}: {}'.format(topic[2], msg[2]))
+        val=msg[2].split('/')
+        lnr=int(topic[2])
+        if lnr in lights:            
+            lights[lnr][0].val=val[0]#bri
+            lights[lnr][1].val=val[1]#on/off
 
+
+
+root.clear_frame()
+top_menue=tk.Menue(root, 60, side=1)
+top_menue.grid()
+
+licht_page=top_menue.add_page(title='Licht', title_fg=tk.BLACK, title_bg=tk.YELLOW)
+licht_menue=tk.Menue(licht_page, 60, side=0)
+licht_menue.grid()
+
+musik_page=top_menue.add_page(title='Musik', title_fg=tk.WHITE, title_bg=tk.RED)
+musik_frame=tk.Label(musik_page,'hier steuert man die anlage')
+musik_frame.grid()
+
+wetter_page=top_menue.add_page(title='Wetter', title_fg=tk.WHITE, title_bg=tk.BLUE)
+wetter_frame=tk.Label(wetter_page,'bestimmt bald wieder gut')
+wetter_frame.grid()
+
+uhr_page=top_menue.add_page(title='Uhr', title_fg=tk.BLACK, title_bg=tk.GREEN)
+uhr_frame=tk.Clock(uhr_page)
+uhr_frame.grid()
+
+settings_page=top_menue.add_page(title='Settings', title_fg=tk.BLACK, title_bg=tk.YELLOW)
+
+bat=Battery(pin=35, update_interval=600) #send status every 10 minutes
+vbat=tk.Var(bat.vbat)
+bat.vbat=vbat.val
+tk.Label(settings_page, bat.vbat, decoration='Battery: {:.2} Volt').grid(columnspan=3)
+tk.Label(settings_page, 'Hintergrundbeleuchtung').grid(columnspan=3)
+
+bgled=tk.Var(100)
+tk.Slider(settings_page,bgled,min=1, command=lambda x: root.backlight(x.val)).grid(columnspan=2, row=2)
+tk.Label(settings_page,bgled, decoration='{}%').grid(column=2, row=2)
+
+
+foto_page=top_menue.add_page(title='Fotos', title_fg=tk.WHITE, title_bg=tk.RED)
+tk.Label(foto_page, 'Fotos').grid()
+
+for r in rooms:
+    page=licht_menue.add_page(title=r[0], side=0, title_fg=tk.BLACK, title_bg=tk.YELLOW)
+    for row,id in enumerate(r[1]):
+        log.debug('add new light {} in room {}'.format(id, r[0]))
+        #print('deconz/lights/{}/state'.format(id))
+        topic='controller/lights/{}/state'.format(id)
+        #lf=tk.Frame(side=1)
+        #page.pack(lf)
+        lights[id]=(tk.Var(0, t=bool),tk.Var(0, t=int), topic)
+        tk.Label(page, id, decoration='L{}: ').grid(row=row, column=0)
+
+        tk.Slider(page, lights[id][1], lights[id][0],
+            command=lambda x,topic=topic: mqtt.publish(topic, str(x.val)), 
+            select_command=lambda x,topic=topic: mqtt.publish(topic, 'on' if x.val else 'off')
+                ).grid(row=row, column=1, columnspan=4)
+        tk.Label(page, lights[id][1], decoration='{}%').grid(row=row, column=5 )
+
+rfid=RFID(rx=15,tx=2,freq=1,new_tag_cmd=lambda x,topic='audio/cmd/play': mqtt.publish(topic, str(x)), tag_removed_cmd=lambda x,topic='audio/cmd/stop': mqtt.publish(topic, str(x)))
 
 mqtt.config(data_cb=datacb)
-mqtt.publish('statusrequest/lights', 'get')
-mqtt.publish('homecontroller/status/', '1')
+#mqtt.status()
+mqtt.subscribe('node-red/#')
+mqtt.subscribe('audio/#')
+mqtt.subscribe('web/weather')
 
-top_menue=gui.Menue(60, side=1)
-screen.root=top_menue
-licht=top_menue.add_page(title='Licht', title_fg=screen.BLACK, title_bg=screen.YELLOW)
-licht_menue=gui.Menue(60, side=0)
-licht.pack(licht_menue)
-musik=top_menue.add_page(title='Musik', title_fg=screen.WHITE, title_bg=screen.RED)
-musik.pack(gui.Label('hier steuert man die anlage'))
-wetter=top_menue.add_page(title='Wetter', title_fg=screen.WHITE, title_bg=screen.BLUE)
-wetter.pack(gui.Label('bestimmt bald wieder gut'))
-uhr=top_menue.add_page(title='Uhr', title_fg=screen.BLACK, title_bg=screen.GREEN)
-uhr.pack(gui.Clock())
-settings=top_menue.add_page(title='Settings', title_fg=screen.BLACK, title_bg=screen.YELLOW)
-settings.pack(gui.Label('Hintergrundbeleuchtung'))
-settings.pack(gui.Frame(side=1))
-bgled=gui.Var(100)
-settings.widgets[-1].pack(gui.Slider(bgled,min=1, command=lambda x: screen.backlight(x.val)), size=5)
-settings.widgets[-1].pack(gui.Label(bgled, decoration='{}%'))
-settings.pack(gui.Label('weitere Einstellungen'), size=4)
+mqtt.publish('controller/lights/all/state', 'get')
+#mqtt.publish('deconz/groups/all/state', 'get')
+#mqtt.publish('homecontroller/status/', '1')
 
-
-fotos=top_menue.add_page(title='Fotos', title_fg=screen.WHITE, title_bg=screen.RED)
-fotos.pack(gui.Label('Fotos'))
-
-
-wz=licht_menue.add_page(title='Wohnzi.', side=0, title_fg=screen.BLACK, title_bg=screen.YELLOW)
-lichter=[]
-for l in range(2):
-    lf=gui.Frame(side=1)
-    wz.pack(lf)
-    lval=gui.Var(0)
-    lf.pack(gui.Label(l+1, decoration='L{}: '))
-    lf.pack(gui.Slider(lval), size=4)
-    lf.pack(gui.Label(lval, decoration='{}%'))
-
-sz=licht_menue.add_page(title='Schlafzi.', title_fg=screen.BLACK, title_bg=screen.YELLOW)
-#z.pack(gui.Label('Bastelzimmer'))
-sz.pack(gui.Menue(60,side=1))
-submenue=sz.widgets[0]
-for i in range(3):
-    page=submenue.add_page(title= 'Licht {}'.format(i+1), title_bg=screen.RED,side=1)
-    #page.pack(gui.Label('Licht {} Steuerung'.format(i+1)))
-    for l in range(2):
-        lf=gui.Frame(side=0)
-        page.pack(lf)
-        lval=gui.Var(0)
-        lf.pack(gui.Label(l+1, decoration='L{}: '))
-        lf.pack(gui.Slider(lval, horizontal=False), size=4)
-        lf.pack(gui.Label(lval, decoration='{}%'))
-
-
-bz=licht_menue.add_page(title='Balstelzi.', side=0,title_fg=screen.BLACK,title_bg=screen.YELLOW)
-lval=lights['lights/Bastelzimmer/bulb1/brightness']
-bz.pack(gui.Button('light', margin=10, command=lambda: mqtt.publish('lights/Bastelzimmer/bulb1/toggle', '1')))
-bz.pack(gui.Slider(lval, horizontal=True, command=lambda x: mqtt.publish('lights/Bastelzimmer/bulb1/brightness', str(x.val))), size=4)
-bz.pack(gui.Label(lval, decoration='{}%'))
-screen.mainloop()
+root.mainloop()
 #mqtt.free()
 
 #import requests
