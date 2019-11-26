@@ -666,8 +666,7 @@ class Tk(display.TFT, Frame):
         self._focus_widget=widget
 
     def set_wakeup_pin(self, pin=None):
-        if isinstance(pin, int):
-            pin=Pin(pin)
+        
         self.wakeup_pin=pin
         
 
@@ -731,6 +730,8 @@ class Tk(display.TFT, Frame):
         self.set_standby()
         log.info('shutdown ...')
         if self.wakeup_pin is not None:
+            if isinstance(self.wakeup_pin, int):
+                self.wakeup_pin=Pin(self.wakeup_pin)
             rtc=RTC()
             rtc.wake_on_ext0(self.wakeup_pin, 0)
         machine.deepsleep()
