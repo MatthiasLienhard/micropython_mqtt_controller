@@ -1,5 +1,6 @@
 import display
 from machine import PWM, RTC, Pin, DEC
+import machine
 import time
 import uasyncio as asyncio
 from math import copysign, sin, cos, pi
@@ -611,6 +612,7 @@ class Tk(display.TFT, Frame):
         self.fg=WHITE
         self.clear_frame()
         self.standby_time=60
+        self.shutdown_time=100
         self.touch_calibration=(500,3500,500,3500)
         self.initiated=0
         #self.movable=False
@@ -662,6 +664,12 @@ class Tk(display.TFT, Frame):
     def focus_widget(self,widget):
         self._focus_widget=widget
 
+    def set_wakeup_pin(self, pin):
+        if not isinstance(pin, Pin):
+            pin=Pin(pin)
+        rtc=RTC()
+        rtc.wake_on_ext0(pin, 0)
+        
 
     def  deinit(self):
         super().deinit()
@@ -696,17 +704,27 @@ class Tk(display.TFT, Frame):
                 self.focus_widget.on_release(self.touch_current, self.focus_window, self)
                 self.touch_start=None
                 self.touch_current=None
-            if time.time()-self.timestamp > self.standby_time:
+            if time.time()-self.timestamp > self.shutdown_time:
+                self.shutdown()
+            elif time.time()-self.timestamp > self.standby_time:
                 if not self.standby:
-                    self._backlight=self.backlight()
-                    log.info('going to standby')
-                    self.backlight(0)
-                    self.standby=True
+                    self.set_standby()
             elif self.standby:
                 self.backlight(self._backlight)
                 self.standby=False
                 log.info('waking from standby')
             await asyncio.sleep(1/freq)  
+
+    def set_standby(self):
+        self._backlight=self.backlight()
+        log.info('going to standby')
+        self.backlight(0)
+        self.standby=True
+
+    def shutdown(self):
+        log.info('shutdown ...')
+        
+        machine.deepsleep()
 
     #command functions for hid
     def cmd_add(self, val=1):

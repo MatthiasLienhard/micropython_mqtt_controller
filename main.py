@@ -24,9 +24,10 @@ root = tk.Tk()
 #touch=TouchPad(14,lambda hid:print('press'),lambda hid :print('hold'),lambda hid:print('release'),hold_repeat_time=.1)
 btn=Button(25,lambda hid:log.info('press'),lambda hid :log.info('hold'),lambda hid :root.cmd_select(),hold_repeat_time=.1)
 encoder=RotaryEncoder(26,27,lambda val: root.cmd_add(val), freq=5)
+root.set_wakeup_pin(25) # to wakeup from deepsleep
 
 root.init(root.ILI9488, width=240, height=320, 
-    miso=19, mosi=23, clk=18, cs=5, dc=21, tcs=0,rst_pin=4, backl_pin=22, bgr=False,
+    miso=19, mosi=23, clk=18, cs=5, dc=21, tcs=0,rst_pin=22, backl_pin=4, bgr=False,
     hastouch=root.TOUCH_XPT,backl_on=1, speed=40000000, splash=False, rot=root.LANDSCAPE_FLIP)
 
 #info=gui.Frame(root, bg=screen.BLACK, fg=screen.WHITE)
